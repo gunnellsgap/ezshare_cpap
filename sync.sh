@@ -79,7 +79,7 @@ if [ "`id -u`" -eq 0 ]
 fi
 
 # The location where SD card files will be synchronised:
-sdCardDir="./SD_Card"
+sdCardDir="/Users/`whoami`/Documents/CPAP_Data/SD_card"
 
 # Create the SD card directory if it doesn't exist
 if [ ! -d ${sdCardDir} ]
