@@ -52,10 +52,10 @@ version_check() {
 
   if [ ${lv} -gt ${cv} ]
     then
-    echo "Script update available. Auto-update from version ${cv} to ${lv} in progress..."
-    curl -o $0 https://raw.githubusercontent.com/iitggithub/ezshare_cpap/main/sync.sh
-    echo "Done. Relaunching $0"
-    $0
+    echo "Script update available. Version ${cv} to ${lv}."
+    # curl -o $0 https://raw.githubusercontent.com/iitggithub/ezshare_cpap/main/sync.sh
+    # echo "Done. Relaunching $0"
+    # $0
     exit
   fi
 }
@@ -79,7 +79,7 @@ if [ "`id -u`" -eq 0 ]
 fi
 
 # The location where SD card files will be synchronised:
-sdCardDir="/Users/`whoami`/Desktop/SD_Card"
+sdCardDir="./SD_Card"
 
 # Create the SD card directory if it doesn't exist
 if [ ! -d ${sdCardDir} ]
@@ -90,8 +90,14 @@ fi
 
 # Default list of files to always include in upload zip file
 fileList="${sdCardDir}/Identification.crc"
+
+# AirSense 10
 fileList="${fileList} ${sdCardDir}/Identification.tgt"
 fileList="${fileList} ${sdCardDir}/Journal.dat"
+# AirSense 11
+fileList="${fileList} ${sdCardDir}/Identification.json"
+fileList="${fileList} ${sdCardDir}/JOURNAL.JNL"
+
 fileList="${fileList} ${sdCardDir}/SETTINGS"
 fileList="${fileList} ${sdCardDir}/STR.edf"
 
@@ -231,6 +237,11 @@ echo
 ezShareSyncInProgress=1
 ${ezShareCLICmd} -w -r -d / -t ${sdCardDir}/ 2>&1 | tee ${fileSyncLog}
 ezShareSyncInProgress=0
+
+# Oscar expects STR.edf, not STR.EDF
+if [ -f "${sdCardDir}/STR.EDF" ]; then
+  mv "${sdCardDir}/STR.EDF" "${sdCardDir}/STR.edf"
+fi
 
 echo
 echo "SD card sync complete at `date`"
