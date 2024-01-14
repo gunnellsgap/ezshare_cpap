@@ -1,5 +1,5 @@
 #! /bin/bash -e
-# VERSION=5
+# VERSION=8
 # Script to sync data from an Ez Share WiFi SD card
 # to a folder called "SD_Card" on the local users desktop.
 
@@ -13,11 +13,14 @@ exit_function() {
     then
     echo "Something went wrong with the sync. Rolling back changes in the DATALOG directory..."
     echo
-    for dir in `cat ${fileSyncLog} | grep "100%" | cut -f1 -d ':' | grep DATALOG | awk -F '/' '{print $(NF -1)}' | sort | uniq`
-      do
-      echo "Removing ${sdCardDir}/DATALOG/${dir}"
-      rm -rf ${sdCardDir}/DATALOG/${dir}
-    done
+    if [ -f ${fileSyncLog} ]
+      then
+      for dir in `cat ${fileSyncLog} | grep "100%" | cut -f1 -d ':' | grep DATALOG | awk -F '/' '{print $(NF -1)}' | sort | uniq`
+        do
+        echo "Removing ${sdCardDir}/DATALOG/${dir}"
+        rm -rf ${sdCardDir}/DATALOG/${dir}
+      done
+    fi
     echo
     echo "Cleanup complete"
   fi
@@ -80,6 +83,7 @@ fi
 
 # The location where SD card files will be synchronised:
 sdCardDir="/Users/`whoami`/Documents/CPAP_Data/SD_card"
+uploadZipFile="${sdCardDir}/upload.zip" # Zip file containing files needing to be uploaded
 
 # Create the SD card directory if it doesn't exist
 if [ ! -d ${sdCardDir} ]
@@ -89,17 +93,17 @@ if [ ! -d ${sdCardDir} ]
 fi
 
 # Default list of files to always include in upload zip file
-fileList="${sdCardDir}/Identification.crc"
+fileList="Identification.crc"
 
 # AirSense 10
-fileList="${fileList} ${sdCardDir}/Identification.tgt"
-fileList="${fileList} ${sdCardDir}/Journal.dat"
+fileList="${fileList} Identification.tgt"
+fileList="${fileList} Journal.dat"
 # AirSense 11
-fileList="${fileList} ${sdCardDir}/Identification.json"
-fileList="${fileList} ${sdCardDir}/JOURNAL.JNL"
+fileList="${fileList} Identification.json"
+fileList="${fileList} JOURNAL.JNL"
 
-fileList="${fileList} ${sdCardDir}/SETTINGS"
-fileList="${fileList} ${sdCardDir}/STR.edf"
+fileList="${fileList} SETTINGS"
+fileList="${fileList} STR.edf"
 
 # Get the WiFi adaptor name. If there's multiple it
 # will choose the first one in the list. Typically
@@ -185,10 +189,12 @@ echo "PASS!"
 # need to be added to the zip file
 if [ -d "/var/tmp" ]
   then
-  fileSyncLog="/var/tmp/sync.log"
+  tmpDir="/var/tmp"
   else
-  fileSyncLog="/tmp/sync.log"
+  tmpDir="/tmp"
 fi
+
+fileSyncLog="${tmpDir}/sync.log"
 
 # Check if the ezshare-cli command is available
 # If not install it via pip if python is installed
@@ -212,30 +218,82 @@ if [ -z "`which ezshare-cli`" ]
   ezShareCLICmd="`which ezshare-cli`" 
 fi
 
-echo -n "Connecting to WiFi network '${ezShareWifiSSID}'... "
 trap exit_function INT TERM EXIT
-if [ -n "`networksetup -setairportnetwork ${wifiAdaptor} \"${ezShareWifiSSID}\" \"${ezShareWiFiPassword}\" 2>/dev/null`" ]
+attempt=0
+while [ ${attempt} -lt 5 ]
+  do
+  echo -n "Connecting to WiFi network '${ezShareWifiSSID}'... "
+  if [ -n "`networksetup -setairportnetwork ${wifiAdaptor} \"${ezShareWifiSSID}\" \"${ezShareWiFiPassword}\" 2>/dev/null`" ]
+    then
+    echo -e "\n\nFailed to connect to ez Share WiFi network."
+    echo
+    echo -n "Trying again in 10 seconds or press Control + C to exit"
+    i=0
+    while [ ${i} -lt 10 ]
+      do
+      echo -n "."
+      sleep 1
+      ((i+=1))
+    done
+    echo
+    echo
+    else
+    echo "done!"
+    ezShareConnected=1 # Ensures we reconnect to the home wifi network if anything fails
+    break # we're connected to the WiFi network now..
+  fi
+  ((attempt+=1))
+done
+
+# Make sure we don't continue if 5 attempts if attempts > 5
+# this means we tried and failed to connect the EzShare WiFi network
+if [ ${attempt} -eq 5 ]
   then
   echo -e "\n\nFailed to connect to ez Share WiFi network. Please make sure your SSID and password"
   echo "are correct and the ez Share WiFi SD card is powered on."
   exit 1
 fi
-ezShareConnected=1 # Ensures we reconnect to the home wifi network if anything fails
-echo "done!"
 
 # Added to fix a bug in ezshare CLI which only adds files that have changed in size
 # this meant that minor changes to settings were not be captured.
 for target in ${fileList}
   do
-  test -f ${target} && rm -f ${target}
-  test -d ${target} && rm -rf ${target}
+  absTarget="${sdCardDir}/${target}"
+  if [[ ${absTarget} =~ ^/$ ]]
+    then
+    echo "Skipping removal of target ${absTarget}. This is almost certainly a bug"
+    echo "and should be reported here: https://github.com/iitggithub/ezshare_cpap/issues"
+    continue
+  fi
+  remoteTargetFile="`echo ${absTarget} | awk -F '/' '{print $NF}'`"
+  if [ -f ${absTarget} ]
+    then
+    rm -f ${absTarget}
+  fi
+  if [ -d ${absTarget} ]
+    then
+    rm -rf ${absTarget}
+  fi
 done
 
 echo
 echo "Starting SD card sync at `date`"
 echo
+
 ezShareSyncInProgress=1
-${ezShareCLICmd} -w -r -d / -t ${sdCardDir}/ 2>&1 | tee ${fileSyncLog}
+touch ${fileSyncLog}
+i=0
+while [ ${i} -lt 5 ]
+  do
+  echo "Connecting to ezshare card to SD card contents to ${sdCardDir}/"
+  ${ezShareCLICmd} -w -r -d / -t ${sdCardDir}/ 2>&1 | tee ${fileSyncLog}
+  if [ $? -eq 0 ]
+    then
+    break # Break the loop if we've sync'd the file otherwise try again...
+  fi
+  sleep 5 # Try again in 5 seconds
+  ((i+=1))
+done
 ezShareSyncInProgress=0
 
 # Oscar expects STR.edf, not STR.EDF
@@ -262,7 +320,7 @@ for dir in `cat ${fileSyncLog} | grep "100%" | cut -f1 -d ':' | grep DATALOG | a
     then
     firstDir="${dir}"
   fi
-  fileList="${fileList} ${sdCardDir}/DATALOG/${dir}"
+  fileList="${fileList} DATALOG/${dir}"
   lastDir="${dir}"
 done
 
@@ -271,7 +329,9 @@ if [ -n "${firstDir}" ]
   then
   echo
   echo "Creating upload.zip file..."
-  zip -r ${sdCardDir}/upload.zip ${fileList} && echo -e "\nCreated ${sdCardDir}/upload.zip file in ${sdCardDir} which includes dates ${firstDir} to ${lastDir}."
+  cd ${sdCardDir}
+  test -f ${uploadZipFile} && rm -f ${uploadZipFile}
+  zip -r ${uploadZipFile} ${fileList} && echo -e "\nCreated ${uploadZipFile} file in ${sdCardDir} which includes dates ${firstDir} to ${lastDir}."
   else
   echo
   echo "No dates detected that needed to be synchronised."
