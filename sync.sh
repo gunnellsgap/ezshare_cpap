@@ -1083,8 +1083,10 @@ if [ -z "${sleepHQClientUID}" ] ||
       # both sleepHQClientUID and sleepHQClientSecret in the users keychain
       sleepHQClientUID="false"
       sleepHQClientSecret="false"
+      sleepHQDeviceID="false"
       security add-generic-password -T "/usr/bin/security" -U -a "sleepHQClientUID" -s "ezShare" -w "${sleepHQClientUID}" # set the value to false
       security add-generic-password -T "/usr/bin/security" -U -a "sleepHQClientSecret" -s "ezShare" -w "${sleepHQClientSecret}" # set the value to false
+      security add-generic-password -T "/usr/bin/security" -U -a "sleepHQDeviceID" -s "ezShare" -w "${sleepHQDeviceID}" # set the value to false
     ;;
   esac
 fi
